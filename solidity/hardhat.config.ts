@@ -250,7 +250,8 @@ const config: HardhatUserConfig = {
   docgen: {
     outputDir: "generated-docs",
     templates: "docgen-templates",
-    exclude: ['./test'],
+    pages: "single", // `single`, `items` or `files`
+    exclude: ["./test"],
   },
 }
 

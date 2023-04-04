@@ -27,31 +27,19 @@ jobs:
               - './solidity/contracts/**'
               - './.github/workflows/solidity-docs.yml'
 
-  contracts-docs-build:
-    name: Build contracts documentation
-    needs: docs-detect-changes
-    if: github.event_name == 'workflow_dispatch'
-    uses: keep-network/tbtc-v2/.github/workflows/reusable-solidity-docs.yml@document-contracts #TODO: replace `@document-contracts` with `@main`
-    with:
-      projectSubfolder: /solidity
-      # We need to remove unnecessary `//` comment used in the `@dev`
-      # section of `BitcoinTx` documentation, which was causing problem with
-      # rendering of the `.md` file. We do that by executing
-      # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
-      # command substitutes `///` + newline + `//` + newline with just `///` +
-      # newline and does this in a loop.
-      preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
-      docName: tbtc-v2-contracts
-      publish: false
-      debug: true
-    secrets:
-      gcpServiceKeyBase64: ${{ secrets.THRESHOLD_API_DOCS_UPLOADER_SERVICE_KEY_BASE64 }}
-
+  # This job will be triggered for PRs which modify contracts. It will generate
+  # the archive with contracts documentation in Markdown and attatch it to the
+  # workflow run results. Link to the archive will be posted in a PR comment.
+  # The job will also be run after manual triggering and after pushes to the
+  # `releases/mainnet/solidity/**` branches.
   contracts-docs-publish-preview:
     name: Publish preview of contracts documentation
     needs: docs-detect-changes
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: keep-network/tbtc-v2/.github/workflows/reusable-solidity-docs.yml@document-contracts #TODO: replace `@document-contracts` with `@main`
+    if: |
+      github.event_name == 'pull_request'
+        || github.event_name == 'push'
+        || github.event_name == 'workflow_dispatch'
+    uses: keep-network/tbtc-v2/.github/workflows/reusable-solidity-docs.yml@document-contracts-gitbook #TODO: change to `@main`
     with:
       projectSubfolder: /solidity
       # We need to remove unnecessary `//` comment used in the `@dev`
@@ -61,20 +49,23 @@ jobs:
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
       preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
-      docName: tbtc-v2-contracts
-      publish: true
-      gcpProject: keep-prd
-      gcpBucketName: api-docs.threshold.network
-      gcpBucketPath: solidity/${{ github.ref_name }}
+      publish: false
+      # destinationRepo: michalinacienciala/experimental
+      # destinationFolder: ./docs/app-development/api-docs/tbtc-v2
+      # destinationBranch: test-contracts-documentation
+      # userEmail: michalina.cienciala@akena.co
+      # userName: michalinacienciala
       commentPR: true
+      debug: true
+    # TODO: remove secrets, won't be needed when publish = false
     secrets:
-      gcpServiceKeyBase64: ${{ secrets.THRESHOLD_API_DOCS_UPLOADER_SERVICE_KEY_BASE64 }}
+      githubToken: ${{ secrets.TEST_DOCS_GITHUB_TOKEN }}
 
   contracts-docs-publish:
     name: Publish contracts documentation
     needs: docs-detect-changes
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/solidity/')
-    uses: keep-network/tbtc-v2/.github/workflows/reusable-solidity-docs.yml@document-contracts #TODO: replace `@document-contracts` with `@main`
+    uses: keep-network/tbtc-v2/.github/workflows/reusable-solidity-docs.yml@document-contracts-gitbook #TODO: change to `@main`
     with:
       projectSubfolder: /solidity
       # We need to remove unnecessary `//` comment used in the `@dev`
@@ -84,10 +75,12 @@ jobs:
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
       preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
-      docName: tbtc-v2-contracts
-      publish: true
-      gcpProject: keep-prd
-      gcpBucketName: api-docs.threshold.network
-      gcpBucketPath: solidity
+      # TODO: change publish to true, uncomment other params below, change branch to `main`
+      publish: false
+      # destinationRepo: threshold-network/threshold
+      # destinationFolder: ./docs/app-development/api-docs/tbtc-v2
+      # destinationBranch: test-contracts
+      # userEmail: thesis-heimdall@users.noreply.github.com
+      # userName: Heimdall
     secrets:
-      gcpServiceKeyBase64: ${{ secrets.THRESHOLD_API_DOCS_UPLOADER_SERVICE_KEY_BASE64 }}
+      githubToken: ${{ secrets.THRESHOLD_DOCS_GITHUB_TOKEN }}

@@ -6,4 +6,5 @@ deployments/
 export/
 hardhat-dependency-compiler/
 typechain/
+solidity/docgen_templates/
 export.json

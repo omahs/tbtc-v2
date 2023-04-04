@@ -1,72 +1,84 @@
-name: Generate and publish contracts documentation 
+name: Generate and push Solidity API documentation
 
 on:
   workflow_call:
     inputs:
       projectSubfolder:
-        description: A root's subfolder containing `contracts` folder and
-          Yarn / Hardhat configuration. Leave empty ('') if project config 
-          resides in the root. If config resides in subfolder, provide the
-          subfolder name/path, without leading `.` and ending `/`. For example,
-          type `/v2/solidity` if path to the `contracts` folder
-          is `./v2/solidity/contracts`.
-        required: false
-        default: ''
+        description: "A root's subfolder containing the `contracts` folder and
+          the Yarn / Hardhat configuration. Leave empty ('') if the project
+          config resides in the root. If config resides in a subfolder, provide
+          the subfolder name/path, without leading `.` and ending `/`. For
+          example, type `/v2/solidity` if the path to the `contracts` folder is
+          `./v2/solidity/contracts`."
         type: string
+        required: false
+        default: ""
+      removeTrailingSpacesInComments:
+        description: "True if you want to remove space characters between `///`
+          and a comment text in the Solidity files, before generating `.md`
+          files. This may be needed to improve the look of the lists in the
+          generated files."
+        type: boolean
+        required: false
+        default: true
       preProcessingCommand:
-        description: An optional additional bash command to be executed before
-          transforming the Solidity files to an HTML file.
+        description: "An optional additional bash command to be executed before
+          transforming the Solidity files to an HTML file."
+        type: string
         required: false
-        type: string
-      docName:
-        description: A name (without extension) of the generated file (for
-          example, 'tbtc-v2-contracts'); will be used in the final URL.
-        required: true
-        type: string
       publish:
-        description: True if you want to publish the generated HTML file to the
-          GCR bucket (main or preview).
+        description: "True if you want to push the generated file(s) to the
+          destination repository."
+        type: boolean
         required: false
         default: true
-        type: boolean
-      gcpProject:
-        description: A name of the GCP project hosting the bucket where the
-          generated HTML file will land. Required if publish=true.
-        required: false
+      destinationRepo:
+        description: "A name of the repository where the generated Solidity docs
+          will be pushed to. Required if `publish=true`."
         type: string
-      gcpBucketName:
-        description: A name of the the bucket where the generated HTML file will
-          land. Required if publish=true.
         required: false
+      destinationFolder:
+        description: "A path in the destination repository where the generated
+          Solidity docs will be pushed to. For example, `./docs-api/tbtc-v2`."
         type: string
-      gcpBucketPath:
-        description: A bucket's subfolder where the generated HTML file will
-          land. If no subfolder is to be used, please type `.`. For publishing
-          previews of the documentation we suggest using a path with the ref
-          name at the end of the path (`/dollar{{ github.ref_name }}`,
-          where `dollar` is `$`).
         required: false
-        default: '.'
+        default: "."
+      destinationBranch:
+        description: "A branch on the destination repository where the generated
+          Solidity docs will be pushed to (must exist)."
         type: string
+        required: false
+        default: "main"
+      userEmail:
+        description: "The email address of a GitHub user associated with the
+          `githubToken` secret. Will be used to sign commits. Required if
+          `publish=true`."
+        type: string
+        required: false
+      userName:
+        description: "The name of the GitHub user associated with the
+          `githubToken` secret. Will be used to sign commits. Required if
+          `publish=true`."
+        type: string
+        required: false
       commentPR:
-        description: True if you want to add a comment with the path to the
-          generated file in the PR invoking the workflow. If workflow is not
-          triggered by the PR, having this input set to `true` will not brake
-          the execution.
-        required: false
-        default: true
+        description: "True if you want to add a comment with the path to the
+          generated files in the PR invoking the workflow. If the workflow is
+          not triggered by the `pull_request` event, having this input set to
+          `true` will not brake the execution."
         type: boolean
-      debug:
-        description: True if you want to see the generated artifacts in GH run
-          details.
         required: false
         default: false
+      debug:
+        description: "True if you want to see the artifacts generated on various
+          stages of workflow execution in the GH run details."
         type: boolean
+        required: false
+        default: false
     secrets:
-      gcpServiceKeyBase64:
-        description: GCP service key encoded as base64. The account associated
-          with the key should have permissions to make changes in the storage
-          bucket.
+      githubToken:
+        description: "A GitHub API token for the destination directory. Should
+          have `repo` scope. Required if `publish=true`."
         required: false
 
 jobs:
@@ -87,13 +99,14 @@ jobs:
       # substitutes `///` + 0 or more spaces/tabs with just `///`.
 
       - name: Prepare contract files for further processing
+        if: inputs.removeTrailingSpacesInComments
         shell: bash
         run: |
           find ./contracts \
             -name "*.sol" \
             -type f \
             -exec sed -i 's_///[[:blank:]]*_///_' {} \;
-      
+
       - name: Execute additional command
         if: inputs.preProcessingCommand != null
         shell: bash
@@ -103,16 +116,14 @@ jobs:
         if: inputs.debug == true
         uses: actions/upload-artifact@master
         with:
-          name: modified-contracts
+          name: contracts-after-preprocessing
           path: .${{ inputs.projectSubfolder }}/contracts
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
+      # We may need this step in case we execute the workflow in a project
+      # that has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
       # downloads one of its sub-dependencies via unathenticated `git://`
       # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`. This step also prevents the
-      # error during `yarn install --frozen-lockfile` step in case `git://` gets
-      # introduced to tbtc-v2's `yarn.lock`.
+      # `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
         shell: bash
         run: git config --global url."https://".insteadOf git://
@@ -121,79 +132,41 @@ jobs:
         shell: bash
         run: yarn install --frozen-lockfile
 
-      - name: Build Markdown docs # Outputs file to `.${{ inputs.projectSubfolder }}/generated-docs/index.md`
+      # Generates `.md` file(s) based on config in the `hardhat.config.ts`.
+      - name: Build Markdown docs
         run: yarn run hardhat docgen
 
       - name: Export artifacts
-        if: inputs.debug == true
+        if: inputs.debug == true || inputs.commentPR == true
         uses: actions/upload-artifact@master
         with:
-          name: md
+          name: contracts-final-output
           path: .${{ inputs.projectSubfolder }}/generated-docs
 
-      # We need Ruby to install Kramdown AsciiDoc
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1.138.0
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-
-      - name: Install Kramdown AsciiDoc
-        shell: bash
-        run: gem install kramdown-asciidoc
-
-      - name: Convert Markdown to Asciidoc
-        shell: bash
-        run: kramdoc --output=./generated-docs/${{ inputs.docName }}.adoc ./generated-docs/index.md
-
-      - name: Add Table of Contents
-        shell: bash
-        run: |
-          sed -i '1s/^/:toclevels: 1 \n/' ./generated-docs/${{ inputs.docName }}.adoc
-          sed -i '1s/^/:toc: left \n/' ./generated-docs/${{ inputs.docName }}.adoc
-
-      - name: Export artifacts
-        if: inputs.debug == true
-        uses: actions/upload-artifact@master
-        with:
-          name: adoc
-          path: .${{ inputs.projectSubfolder }}/generated-docs
-
-      - name: Build HTML docs
-        id: html
-        uses: thesis/asciidoctor-action@v1.1
-        with:
-          files: '.${{ inputs.projectSubfolder }}/generated-docs/${{ inputs.docName }}.adoc'
-          args: '-a revdate=`date +%Y-%m-%d` --failure-level=ERROR'
-
-      - name: Export artifacts
-        if: inputs.debug == true
-        uses: actions/upload-artifact@master
-        with:
-          name: asciidoc-out
-          path: ./asciidoc-out
-
-      - name: Upload asciidocs preview
+      - name: Push generated docs to the specified repository
         if: inputs.publish == true
-        uses: thesis/gcp-storage-bucket-action@v3.1.0
+        uses: dmnemec/copy_file_to_another_repo_action@v1.1.1
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.githubToken }}
         with:
-          service-key: ${{ secrets.gcpServiceKeyBase64 }}
-          project: ${{ inputs.gcpProject }}
-          bucket-name: ${{ inputs.gcpBucketName }}
-          bucket-path: ${{ inputs.gcpBucketPath }}
-          build-folder: ${{ steps.html.outputs.asciidoctor-artifacts }}${{ inputs.projectSubfolder }}/generated-docs
+          source_file: .${{ inputs.projectSubfolder }}/generated-docs
+          destination_repo: ${{ inputs.destinationRepo }}
+          destination_folder: ${{ inputs.destinationFolder }}
+          destination_branch: ${{ inputs.destinationBranch }}
+          user_email: ${{ inputs.userEmail }}
+          user_name: ${{ inputs.userName }}
+          commit_message: Update documentation via https://github.com/${{ github.repository}}/actions/runs/${{ github.run_id}}
 
       - name: Post preview URL to PR
-        if: |
-          inputs.publish == true
-            && inputs.commentPR == true
+        if: | # inputs.publish == true &&
+          inputs.commentPR == true
             && startsWith(github.ref, 'refs/pull')
-        uses: actions/github-script@v5
+        uses: actions/github-script@v6
         with:
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Documentation preview uploaded to https://${{ inputs.gcpBucketName }}/${{ inputs.gcpBucketPath }}/${{ inputs.docName }}.html.'
+              body: 'Solidity API documentation preview available in the artifacts of the https://github.com/${{ github.repository}}/actions/runs/${{ github.run_id}} check.'
             })
