@@ -17,6 +17,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     waitConfirmations: 1,
   })
 
+  // TODO: should the ownership be transferred somewhere?
+
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(lightRelayMaintainerProxy)
   }

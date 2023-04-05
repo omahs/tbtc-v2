@@ -31,7 +31,7 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
     ILightRelay public lightRelay;
 
     /// @notice Stores addresses that can maintain the relay.
-    mapping(address => bool) public relayMaintainers;
+    mapping(address => bool) public isAuthorized;
 
     /// @notice Gas that is meant to balance the retarget overall cost. Can be
     //          updated by the governance based on the current market conditions.
@@ -39,13 +39,12 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
 
     event RelayUpdated(address newRelay);
 
-    event RelayMaintainerStatusChanged(
-        address indexed maintainer,
-        bool isAuthorized
-    );
+    event MaintainerAuthorized(address indexed maintainer);
+
+    event MaintainerDeauthorized(address indexed maintainer);
 
     modifier onlyRelayMaintainer() {
-        require(relayMaintainers[msg.sender], "Caller is not authorized");
+        require(isAuthorized[msg.sender], "Caller is not authorized");
         _;
     }
 
@@ -83,16 +82,20 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
         emit RelayUpdated(address(_lightRelay));
     }
 
-    /// @notice Sets authorization status from the given address. Can only be
-    ///         called by the owner.
-    /// @param maintainer The address of the maintainer to be authorized or
-    ///                   deauthorized.
-    function setRelayMaintainerStatus(address maintainer, bool isAuthorized)
-        external
-        onlyOwner
-    {
-        relayMaintainers[maintainer] = isAuthorized;
-        emit RelayMaintainerStatusChanged(maintainer, isAuthorized);
+    /// @notice Authorizes the given address as a maintainer. Can only be called
+    ///         by the owner.
+    /// @param maintainer The address of the maintainer to be authorized.
+    function authorize(address maintainer) external onlyOwner {
+        isAuthorized[maintainer] = true;
+        emit MaintainerAuthorized(maintainer);
+    }
+
+    /// @notice Deauthorizes the given address as a maintainer. Can only be called
+    ///         by the owner.
+    /// @param maintainer The address of the maintainer to be deauthorized.
+    function deauthorize(address maintainer) external onlyOwner {
+        isAuthorized[maintainer] = false;
+        emit MaintainerDeauthorized(maintainer);
     }
 
     // TODO: Most likely `onlyReimbursableAdmin()` needs to be overridden.

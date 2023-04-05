@@ -1,13 +1,14 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, deployments, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
 import bridgeFixture from "../fixtures/bridge"
 import type {
   LightRelayStub,
+  LightRelay,
   LightRelayMaintainerProxy,
   ReimbursementPool,
 } from "../../typechain"
@@ -35,57 +36,135 @@ const nextDifficulty = 5106422924659
 const proofLength = 4
 
 const fixture = async () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let reimbursementPool: ReimbursementPool
+  await deployments.fixture()
 
-  // eslint-disable-next-line @typescript-eslint/no-extra-semi
-  ;({ deployer, governance, thirdParty, reimbursementPool } =
-    await waffle.loadFixture(bridgeFixture))
+  const { deployer, governance } = await helpers.signers.getNamedSigners()
+  const [thirdParty, maintainer] = await helpers.signers.getUnnamedSigners()
 
-  const Relay = await ethers.getContractFactory("LightRelayStub")
-  const relay = await Relay.connect(deployer).deploy()
-  await relay.deployed()
+  const reimbursementPool: ReimbursementPool =
+    await helpers.contracts.getContract("ReimbursementPool")
 
-  // TODO: Consider deploying `relayMaintainerProxy` via deployment scripts.
-  const MaintainerProxy = await ethers.getContractFactory(
-    "LightRelayMaintainerProxy"
+  const lightRelayMaintainerProxy: LightRelayMaintainerProxy =
+    await helpers.contracts.getContract("LightRelayMaintainerProxy")
+
+  const lightRelay: LightRelay = await helpers.contracts.getContract(
+    "LightRelay"
   )
-  const relayMaintainerProxy = await MaintainerProxy.connect(deployer).deploy(
-    relay.address,
-    reimbursementPool.address
-  )
-  await relayMaintainerProxy.deployed()
-
-  await relay.connect(deployer).transferOwnership(governance.address)
-  await relayMaintainerProxy
-    .connect(deployer)
-    .transferOwnership(governance.address)
 
   return {
     deployer,
     governance,
+    maintainer,
     thirdParty,
-    relay,
-    relayMaintainerProxy,
+    reimbursementPool,
+    lightRelayMaintainerProxy,
+    lightRelay,
   }
 }
 
 describe("LightRelayMaintainerProxy", () => {
+  let deployer: SignerWithAddress
   let governance: SignerWithAddress
+  let maintainer: SignerWithAddress
   let thirdParty: SignerWithAddress
-  let relay: LightRelayStub
-  let relayMaintainerProxy: LightRelayMaintainerProxy
+  let reimbursementPool: ReimbursementPool
+  let lightRelayMaintainerProxy: LightRelayMaintainerProxy
+  let lightRelay: LightRelay
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, relay, relayMaintainerProxy } =
-      await waffle.loadFixture(fixture))
+    ;({
+      deployer,
+      governance,
+      maintainer,
+      thirdParty,
+      reimbursementPool,
+      lightRelayMaintainerProxy,
+      lightRelay,
+    } = await waffle.loadFixture(fixture))
   })
 
-  describe("setRelayMaintainerStatus", () => {
-    context("when ")
+  describe("authorize", () => {
+    context("When called by non-owner", () => {
+      it("should revert", async () => {
+        await expect(
+          lightRelayMaintainerProxy
+            .connect(thirdParty)
+            .authorize(maintainer.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("When called by the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await lightRelayMaintainerProxy
+          .connect(deployer)
+          .authorize(maintainer.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should authorize the address", async () => {
+        expect(await lightRelayMaintainerProxy.isAuthorized(maintainer.address))
+          .to.be.true
+      })
+
+      it("should emit the MaintainerAuthorized event", async () => {
+        await expect(tx)
+          .to.emit(lightRelayMaintainerProxy, "MaintainerAuthorized")
+          .withArgs(maintainer.address)
+      })
+    })
+  })
+
+  describe("deauthorize", () => {
+    context("When called by non-owner", () => {
+      it("should revert", async () => {
+        await expect(
+          lightRelayMaintainerProxy
+            .connect(thirdParty)
+            .deauthorize(maintainer.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("When called by the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        // Authorize the maintainer first
+        await lightRelayMaintainerProxy
+          .connect(deployer)
+          .authorize(maintainer.address)
+
+        tx = await lightRelayMaintainerProxy
+          .connect(deployer)
+          .deauthorize(maintainer.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should deauthorize the address", async () => {
+        expect(await lightRelayMaintainerProxy.isAuthorized(maintainer.address))
+          .to.be.false
+      })
+
+      it("should emit the MaintainerDeauthorized event", async () => {
+        await expect(tx)
+          .to.emit(lightRelayMaintainerProxy, "MaintainerDeauthorized")
+          .withArgs(maintainer.address)
+      })
+    })
   })
 
   describe("updateLightRelay", () => {
