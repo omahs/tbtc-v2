@@ -51,6 +51,11 @@ const fixture = async () => {
     "LightRelay"
   )
 
+  // Deploy another light relay to be able to test relay update
+  const LightRelay = await ethers.getContractFactory("LightRelay")
+  const anotherLightRelay = await LightRelay.deploy()
+  await anotherLightRelay.deployed()
+
   return {
     deployer,
     governance,
@@ -59,6 +64,7 @@ const fixture = async () => {
     reimbursementPool,
     lightRelayMaintainerProxy,
     lightRelay,
+    anotherLightRelay,
   }
 }
 
@@ -70,6 +76,7 @@ describe("LightRelayMaintainerProxy", () => {
   let reimbursementPool: ReimbursementPool
   let lightRelayMaintainerProxy: LightRelayMaintainerProxy
   let lightRelay: LightRelay
+  let anotherLightRelay: LightRelay
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -81,6 +88,7 @@ describe("LightRelayMaintainerProxy", () => {
       reimbursementPool,
       lightRelayMaintainerProxy,
       lightRelay,
+      anotherLightRelay,
     } = await waffle.loadFixture(fixture))
   })
 
@@ -168,7 +176,43 @@ describe("LightRelayMaintainerProxy", () => {
   })
 
   describe("updateLightRelay", () => {
-    // TODO: Implement
+    context("When called by non-owner", () => {
+      it("should revert", async () => {
+        await expect(
+          lightRelayMaintainerProxy
+            .connect(thirdParty)
+            .updateLightRelay(anotherLightRelay.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("When called by the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await lightRelayMaintainerProxy
+          .connect(deployer)
+          .updateLightRelay(anotherLightRelay.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the light relay address", async () => {
+        expect(await lightRelayMaintainerProxy.lightRelay()).to.be.equal(
+          anotherLightRelay.address
+        )
+      })
+
+      it("should emit the LightRelayUpdated event", async () => {
+        await expect(tx)
+          .to.emit(lightRelayMaintainerProxy, "LightRelayUpdated")
+          .withArgs(anotherLightRelay.address)
+      })
+    })
   })
 
   describe("retarget", () => {

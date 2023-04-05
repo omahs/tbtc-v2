@@ -37,7 +37,7 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
     //          updated by the governance based on the current market conditions.
     uint256 public retargetGasOffset;
 
-    event RelayUpdated(address newRelay);
+    event LightRelayUpdated(address newRelay);
 
     event MaintainerAuthorized(address indexed maintainer);
 
@@ -79,7 +79,7 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
     function updateLightRelay(ILightRelay _lightRelay) external onlyOwner {
         lightRelay = _lightRelay;
 
-        emit RelayUpdated(address(_lightRelay));
+        emit LightRelayUpdated(address(_lightRelay));
     }
 
     /// @notice Authorizes the given address as a maintainer. Can only be called
