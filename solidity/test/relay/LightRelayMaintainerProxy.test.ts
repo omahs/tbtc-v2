@@ -216,6 +216,7 @@ describe("LightRelayMaintainerProxy", () => {
   })
 
   describe("retarget", () => {
+    // TODO: implement
     const { chain } = headers
     const headerHex = chain.map((header) => header.hex)
 
